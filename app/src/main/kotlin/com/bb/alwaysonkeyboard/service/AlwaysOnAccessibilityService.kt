@@ -31,9 +31,14 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 /**
- * Coordinates with [AlwaysOnInputMethodService] to keep the native IME window open
- * (which resizes apps above the keyboard via `contentTopInsets` instead of covering them),
- * executes Capacitive Trackpad scrolling across any app, and detects full-screen video/games.
+ * Coordinates with [AlwaysOnInputMethodService] and the Custom BB Home Launcher:
+ * - On the BB Home Launcher (`isLauncherInForeground == true`), hides its overlay because the
+ *   Home Launcher renders its UI in the top 72% and the keyboard in the bottom 28% of a single
+ *   non-overlapping Column.
+ * - Inside third-party apps, keeps the keyboard open (either via Native IME window or persistent
+ *   dock) and provides 1-tap `⧉ Fit App` (`GLOBAL_ACTION_TOGGLE_SPLIT_SCREEN`) to snap any app
+ *   into the upper display area above the keyboard.
+ * - Executes Capacitive Trackpad scrolling across any app and auto-hides in full-screen video/games.
  */
 class AlwaysOnAccessibilityService : AccessibilityService() {
 
@@ -60,6 +65,11 @@ class AlwaysOnAccessibilityService : AccessibilityService() {
             performCapacitiveScroll(dx, dy)
         }
 
+        // Register 1-tap Split-Screen Dock handler ("⧉ Fit App" button on keyboard top bar)
+        KeyboardStateRepository.onToggleSplitScreenCallback = {
+            performGlobalAction(GLOBAL_ACTION_TOGGLE_SPLIT_SCREEN)
+        }
+
         // Fallback text callbacks when typing into a focused AccessibilityNodeInfo
         if (KeyboardStateRepository.onCommitTextCallback == null) {
             KeyboardStateRepository.onCommitTextCallback = { text ->
@@ -72,32 +82,23 @@ class AlwaysOnAccessibilityService : AccessibilityService() {
             }
         }
 
-        setupRestorePillOverlay()
-        AlwaysOnInputMethodService.requestShowNativeKeyboard()
+        setupPersistentOverlayDock()
 
-        // Only show the tiny Accessibility Overlay pill when the user manually minimized the keyboard
-        // ("Restore Keyboard ▴") OR on the Home screen if the native IME window isn't shown.
-        // Never draw an overlay over regular apps so apps are resized by the native IME window instead of covered!
+        // Synchronize overlay visibility with Launcher foreground state, IME window, and Fullscreen detection
         serviceScope.launch {
             KeyboardStateRepository.state.collectLatest { state ->
                 val view = overlayView ?: return@collectLatest
-                if (state.isAutoHiddenByFullscreen) {
-                    view.visibility = View.GONE
-                } else if (state.isManuallyMinimized) {
-                    // Show the slim 28dp "Restore Keyboard ▴" bar at the bottom edge
-                    view.visibility = View.VISIBLE
-                } else if (!state.isImeWindowVisible) {
-                    // Ask the native IME service to open its resizing window
-                    AlwaysOnInputMethodService.requestShowNativeKeyboard()
-                    view.visibility = View.GONE
-                } else {
-                    view.visibility = View.GONE
-                }
+                // When our own BB Home Launcher is in the foreground, it renders the keyboard
+                // directly in its own layout column so the Home screen is 100% uncut above the keyboard.
+                val shouldShowOverlay = !state.isLauncherInForeground &&
+                    !state.isImeWindowVisible &&
+                    !state.isAutoHiddenByFullscreen
+                view.visibility = if (shouldShowOverlay) View.VISIBLE else View.GONE
             }
         }
     }
 
-    private fun setupRestorePillOverlay() {
+    private fun setupPersistentOverlayDock() {
         if (overlayView != null) return
         val wm = getSystemService(WINDOW_SERVICE) as WindowManager
         windowManager = wm
@@ -149,8 +150,9 @@ class AlwaysOnAccessibilityService : AccessibilityService() {
         if (event == null) return
 
         val pkg = event.packageName?.toString().orEmpty()
-        if (pkg.isNotEmpty() && pkg != packageName) {
-            val isHome = cachedHomePackages.contains(pkg) || pkg.contains("launcher", ignoreCase = true)
+        if (pkg.isNotEmpty() && !pkg.startsWith("com.android.systemui")) {
+            val isOurLauncher = pkg == packageName
+            val isHome = isOurLauncher || cachedHomePackages.contains(pkg) || pkg.contains("launcher", ignoreCase = true)
             KeyboardStateRepository.setForegroundWindowContext(pkg, isHome)
         }
 

@@ -11,8 +11,8 @@ android {
     applicationId = "com.bb.alwaysonkeyboard"
     minSdk = 26
     targetSdk = 36
-    versionCode = 2
-    versionName = "1.1.0"
+    versionCode = 3
+    versionName = "2.0.0"
   }
 
   buildTypes {

@@ -19,7 +19,7 @@ class KeyboardStateRepositoryTest {
 
         // When inside a regular app with no input focused, Smart Combined acts as Passive Dock (Mode 4) for taps
         // while keeping Capacitive Trackpad scrolling (Mode 2) enabled!
-        val inAppIdleState = homeState.copy(isHomeScreenActive = false)
+        val inAppIdleState = homeState.copy(isHomeScreenActive = false, isLauncherInForeground = false)
         assertTrue(inAppIdleState.isTrackpadSwipeEnabled)
         assertFalse(inAppIdleState.isQuickLaunchActiveForIdleTaps)
     }

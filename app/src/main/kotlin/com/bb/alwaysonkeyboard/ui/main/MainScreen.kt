@@ -3,28 +3,38 @@ package com.bb.alwaysonkeyboard.ui.main
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.provider.Settings
 import android.view.inputmethod.InputMethodManager
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -43,14 +53,11 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -70,6 +77,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -89,12 +98,17 @@ import com.bb.alwaysonkeyboard.data.KeyboardStateRepository
 import com.bb.alwaysonkeyboard.data.KeyboardUiState
 import com.bb.alwaysonkeyboard.ui.keyboard.ModernQwertyKeyboard
 import com.bb.alwaysonkeyboard.ui.theme.AlwaysOnKeyboardTheme
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private enum class DashboardTab(val title: String) {
+    HOME_LAUNCHER("BB Home"),
     SETUP_AND_MODES("Setup & Modes"),
-    SHORTCUTS("A–Z Shortcuts"),
-    LIVE_SANDBOX("Test Keyboard")
+    SHORTCUTS("A–Z Keys"),
+    LIVE_SANDBOX("Test")
 }
 
 private enum class SandboxContext(val title: String) {
@@ -127,11 +141,13 @@ fun AlwaysOnKeyboardDashboard(modifier: Modifier = Modifier) {
     val installedApps by KeyboardStateRepository.installedApps.collectAsState()
 
     var selectedTab by remember { mutableIntStateOf(0) }
+    var isDefaultLauncher by remember { mutableStateOf(false) }
     var isImeEnabled by remember { mutableStateOf(false) }
     var isImeSelected by remember { mutableStateOf(false) }
     var isAccessibilityEnabled by remember { mutableStateOf(false) }
 
     fun refreshSystemStatus() {
+        isDefaultLauncher = checkIsDefaultLauncher(context)
         isImeEnabled = checkImeEnabled(context)
         isImeSelected = checkImeSelected(context)
         isAccessibilityEnabled = checkAccessibilityServiceEnabled(context)
@@ -150,103 +166,492 @@ fun AlwaysOnKeyboardDashboard(modifier: Modifier = Modifier) {
         }
     }
 
-    Scaffold(
+    // Root Column splits the physical display into two non-overlapping zones:
+    // 1. Top Zone (weight(1f)): Complete BB Home Launcher or Settings UI (never covered by keyboard!)
+    // 2. Bottom Zone: Permanent Clean Modern Minimal QWERTY Keyboard Dock
+    Column(
         modifier = modifier
             .fillMaxSize()
-            .imePadding(),
-        topBar = {
-            if (!kbState.isFullscreenDetected) {
-                TopAppBar(
-                    title = {
-                        Column {
-                            Text(
-                                text = "AlwaysOn Minimal Keyboard",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = kbState.lastTelemetryEvent,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1
+            .background(MaterialTheme.colorScheme.background)
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .imePadding()
+    ) {
+        if (!kbState.isFullscreenDetected) {
+            // Compact Top Navigation Bar
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "AlwaysOn Minimal Keyboard",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = kbState.lastTelemetryEvent,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(start = 12.dp)
+                        )
+                    }
+
+                    PrimaryTabRow(selectedTabIndex = selectedTab) {
+                        DashboardTab.entries.forEachIndexed { index, tab ->
+                            Tab(
+                                selected = selectedTab == index,
+                                onClick = { selectedTab = index },
+                                text = {
+                                    Text(
+                                        text = tab.title,
+                                        fontSize = 12.sp,
+                                        fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Medium
+                                    )
+                                }
                             )
                         }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainer
-                    )
-                )
-            }
-        }
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-        ) {
-            if (!kbState.isFullscreenDetected) {
-                PrimaryTabRow(selectedTabIndex = selectedTab) {
-                    DashboardTab.entries.forEachIndexed { index, tab ->
-                        Tab(
-                            selected = selectedTab == index,
-                            onClick = { selectedTab = index },
-                            text = {
-                                Text(
-                                    text = tab.title,
-                                    fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Medium
-                                )
-                            }
-                        )
                     }
                 }
             }
+        }
 
-            // Main Content Area above the Always-On Keyboard Dock
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-            ) {
-                when (DashboardTab.entries[selectedTab]) {
-                    DashboardTab.SETUP_AND_MODES -> SetupAndModesSection(
-                        kbState = kbState,
-                        isImeEnabled = isImeEnabled,
-                        isImeSelected = isImeSelected,
-                        isAccessibilityEnabled = isAccessibilityEnabled,
-                        onRefreshStatus = ::refreshSystemStatus
-                    )
+        // Upper Display Zone (Takes up 100% of the space ABOVE the keyboard — zero overlap!)
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+        ) {
+            when (DashboardTab.entries[selectedTab]) {
+                DashboardTab.HOME_LAUNCHER -> CustomBbHomeLauncherSection(
+                    kbState = kbState,
+                    installedApps = installedApps,
+                    isDefaultLauncher = isDefaultLauncher,
+                    onOpenSetupTab = { selectedTab = DashboardTab.SETUP_AND_MODES.ordinal },
+                    onOpenShortcutsTab = { selectedTab = DashboardTab.SHORTCUTS.ordinal }
+                )
 
-                    DashboardTab.SHORTCUTS -> ShortcutsCustomizationSection(
-                        kbState = kbState,
-                        installedApps = installedApps
-                    )
+                DashboardTab.SETUP_AND_MODES -> SetupAndModesSection(
+                    kbState = kbState,
+                    isDefaultLauncher = isDefaultLauncher,
+                    isImeEnabled = isImeEnabled,
+                    isImeSelected = isImeSelected,
+                    isAccessibilityEnabled = isAccessibilityEnabled,
+                    onRefreshStatus = ::refreshSystemStatus
+                )
 
-                    DashboardTab.LIVE_SANDBOX -> InteractiveSandboxSection(
-                        kbState = kbState,
-                        onExitFullscreenToSetup = {
-                            KeyboardStateRepository.setFullscreenDetected(false)
-                        }
+                DashboardTab.SHORTCUTS -> ShortcutsCustomizationSection(
+                    kbState = kbState,
+                    installedApps = installedApps
+                )
+
+                DashboardTab.LIVE_SANDBOX -> InteractiveSandboxSection(
+                    kbState = kbState,
+                    onExitFullscreenToSetup = {
+                        KeyboardStateRepository.setFullscreenDetected(false)
+                    }
+                )
+            }
+        }
+
+        // Bottom Display Zone: Dedicated Always-On Keyboard Dock
+        // Rendered directly in the Column layout whenever the system IME window isn't already open
+        // so that the upper screen stops cleanly at the top edge of the keyboard!
+        val showBuiltInDock = !kbState.isImeWindowVisible && !kbState.isAutoHiddenByFullscreen
+        AnimatedVisibility(visible = showBuiltInDock) {
+            ModernQwertyKeyboard()
+        }
+    }
+}
+
+/**
+ * Custom BB Keyboard Home Screen Launcher that fits 100% in the upper display zone above the keyboard.
+ * - Includes Live Clock & Date, Default Home Launcher status banner, Speed-Dial A–Z tiles,
+ *   All-Apps Drawer (scrollable via Capacitive Trackpad swipe on the keyboard keys!), and
+ *   a dedicated Home Dock sitting right above the top edge of the keyboard.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun CustomBbHomeLauncherSection(
+    kbState: KeyboardUiState,
+    installedApps: List<InstalledAppInfo>,
+    isDefaultLauncher: Boolean,
+    onOpenSetupTab: () -> Unit,
+    onOpenShortcutsTab: () -> Unit
+) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val appGridState = rememberLazyGridState()
+
+    var showAllAppsDrawer by remember { mutableStateOf(false) }
+    var currentTimeText by remember { mutableStateOf("") }
+    var currentDateText by remember { mutableStateOf("") }
+
+    // Update clock every 15 seconds
+    LaunchedEffect(Unit) {
+        val timeFmt = SimpleDateFormat("h:mm a", Locale.getDefault())
+        val dateFmt = SimpleDateFormat("EEE, MMM d", Locale.getDefault())
+        while (true) {
+            val now = Date()
+            currentTimeText = timeFmt.format(now)
+            currentDateText = dateFmt.format(now)
+            delay(15_000L)
+        }
+    }
+
+    // Connect Capacitive Trackpad scrolling (Mode 2) directly to the Home Launcher grid!
+    DisposableEffect(Unit) {
+        KeyboardStateRepository.setInputFocused(false)
+        val prevScroll = KeyboardStateRepository.onTrackpadScrollCallback
+        KeyboardStateRepository.onTrackpadScrollCallback = { _, dy ->
+            coroutineScope.launch {
+                appGridState.scrollBy(-dy * 1.6f)
+            }
+            prevScroll?.invoke(0f, dy)
+        }
+        onDispose {
+            KeyboardStateRepository.onTrackpadScrollCallback = prevScroll
+        }
+    }
+
+    val filteredApps = remember(installedApps, kbState.universalSearchQuery) {
+        val q = kbState.universalSearchQuery.trim()
+        if (q.isEmpty()) installedApps
+        else installedApps.filter { it.label.contains(q, ignoreCase = true) }
+    }
+
+    // Automatically switch to filtered apps view when user starts typing a search query on the keyboard
+    val isSearching = kbState.universalSearchQuery.isNotEmpty()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.SpaceBetween
+    ) {
+        // 1. Top Clock, Date & Launcher Mode Header
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(
+                    text = currentTimeText.ifEmpty { "12:00 PM" },
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "$currentDateText • ${kbState.idleMode.shortTitle}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (!isDefaultLauncher) {
+                    OutlinedButton(
+                        onClick = {
+                            try {
+                                context.startActivity(Intent(Settings.ACTION_HOME_SETTINGS).apply {
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                })
+                            } catch (_: Exception) {
+                            }
+                        },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                    ) {
+                        Text("Set as Home", fontSize = 11.sp)
+                    }
+                }
+
+                Button(
+                    onClick = { showAllAppsDrawer = !showAllAppsDrawer },
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = if (showAllAppsDrawer || isSearching) "★ Speed Dial" else "Apps (${installedApps.size})",
+                        fontSize = 11.sp
                     )
                 }
             }
+        }
 
-            // Built-in Live Always-On Keyboard Dock Preview & Controller
-            // Only shown inside the app if the native system IME is not yet enabled/selected,
-            // so there is never a duplicate keyboard covering the screen.
-            val showInAppDock = !isImeSelected &&
-                !kbState.isImeWindowVisible &&
-                !kbState.isAutoHiddenByFullscreen
+        Spacer(modifier = Modifier.height(6.dp))
 
-            AnimatedVisibility(visible = showInAppDock) {
-                ModernQwertyKeyboard()
+        // 2. Center Uncut Workspace (Speed Dial A-Z Shortcuts OR All-Apps Grid)
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+        ) {
+            if (!showAllAppsDrawer && !isSearching) {
+                // BB Speed Dial Grid (Assigned A-Z Key Shortcuts)
+                val assignedShortcuts = remember(kbState.shortcuts) {
+                    kbState.shortcuts.values.sortedBy { it.key }
+                }
+
+                Column(modifier = Modifier.fillMaxSize()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "BB Speed Dial (Press Key on Keyboard or Tap)",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = "Customize A–Z ▸",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.clickable(onClick = onOpenShortcutsTab)
+                        )
+                    }
+
+                    LazyVerticalGrid(
+                        state = appGridState,
+                        columns = GridCells.Fixed(3),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(assignedShortcuts, key = { it.key }) { shortcut ->
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .combinedClickable(
+                                        onClick = {
+                                            KeyboardStateRepository.launchAppShortcut(context, shortcut)
+                                        },
+                                        onLongClick = onOpenShortcutsTab
+                                    ),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                                ),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 10.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(28.dp)
+                                            .clip(RoundedCornerShape(7.dp))
+                                            .background(MaterialTheme.colorScheme.primary),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = shortcut.key.toString(),
+                                            color = MaterialTheme.colorScheme.onPrimary,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = shortcut.label,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                // All Installed Apps Grid (Scrollable via Capacitive Trackpad Swipe on Keyboard!)
+                Column(modifier = Modifier.fillMaxSize()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (isSearching) {
+                                "Matching Apps for \"${kbState.universalSearchQuery}\""
+                            } else {
+                                "All Apps • Swipe Keyboard Keys to Scroll"
+                            },
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        if (isSearching) {
+                            Text(
+                                text = "Clear",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.clickable { KeyboardStateRepository.clearUniversalSearch() }
+                            )
+                        }
+                    }
+
+                    LazyVerticalGrid(
+                        state = appGridState,
+                        columns = GridCells.Fixed(4),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(filteredApps, key = { it.packageName }) { app ->
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        KeyboardStateRepository.launchPackage(
+                                            context = context,
+                                            packageName = app.packageName,
+                                            label = app.label
+                                        )
+                                    },
+                                shape = RoundedCornerShape(10.dp),
+                                color = MaterialTheme.colorScheme.surfaceContainerLow
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 10.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(34.dp)
+                                            .clip(CircleShape)
+                                            .background(MaterialTheme.colorScheme.primaryContainer),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = app.label.take(1).uppercase(),
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 15.sp
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(5.dp))
+                                    Text(
+                                        text = app.label,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        // 3. Dedicated Bottom Home Dock (Positioned *Directly Above* the Keyboard — Never Covered!)
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            shape = RoundedCornerShape(14.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                DockActionPill(
+                    badge = "P",
+                    label = "Phone",
+                    onClick = {
+                        kbState.shortcuts['P']?.let { KeyboardStateRepository.launchAppShortcut(context, it) }
+                    }
+                )
+                DockActionPill(
+                    badge = "M",
+                    label = "Messages",
+                    onClick = {
+                        kbState.shortcuts['M']?.let { KeyboardStateRepository.launchAppShortcut(context, it) }
+                    }
+                )
+                DockActionPill(
+                    badge = "⊞",
+                    label = if (showAllAppsDrawer) "Speed Dial" else "All Apps",
+                    isPrimary = true,
+                    onClick = { showAllAppsDrawer = !showAllAppsDrawer }
+                )
+                DockActionPill(
+                    badge = "C",
+                    label = "Browser",
+                    onClick = {
+                        kbState.shortcuts['C']?.let { KeyboardStateRepository.launchAppShortcut(context, it) }
+                    }
+                )
+                DockActionPill(
+                    badge = "⚙",
+                    label = "Setup",
+                    onClick = onOpenSetupTab
+                )
             }
         }
     }
 }
 
 @Composable
+private fun DockActionPill(
+    badge: String,
+    label: String,
+    isPrimary: Boolean = false,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(
+                if (isPrimary) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.surface
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 9.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = badge,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            color = if (isPrimary) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary
+        )
+        Spacer(modifier = Modifier.width(4.dp))
+        Text(
+            text = label,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = if (isPrimary) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+        )
+    }
+}
+
+@Composable
 private fun SetupAndModesSection(
     kbState: KeyboardUiState,
+    isDefaultLauncher: Boolean,
     isImeEnabled: Boolean,
     isImeSelected: Boolean,
     isAccessibilityEnabled: Boolean,
@@ -258,8 +663,8 @@ private fun SetupAndModesSection(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         // 1. System Activation Checklist Card
         Card(
@@ -273,18 +678,33 @@ private fun SetupAndModesSection(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    text = "System Activation (Physical Keyboard Experience)",
+                    text = "System Setup (Uncut Display + Physical Keyboard)",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "Enable both the Input Method (for typing in apps) and the Persistent Dock Service (so the keyboard stays open on the Home screen, scrolls feeds via capacitive touch, and auto-hides in fullscreen video).",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
                 SetupStepRow(
                     stepNumber = "1",
+                    title = "Set BB Home as Default Launcher",
+                    subtitle = if (isDefaultLauncher) {
+                        "Active Default Home Launcher (Home screen fits 100% above keyboard)"
+                    } else {
+                        "Makes your Home screen sit cleanly above the keyboard with zero cut-off"
+                    },
+                    isDone = isDefaultLauncher,
+                    buttonLabel = if (isDefaultLauncher) "Default" else "Set Home",
+                    onClick = {
+                        try {
+                            context.startActivity(Intent(Settings.ACTION_HOME_SETTINGS).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            })
+                        } catch (_: Exception) {
+                        }
+                    }
+                )
+
+                SetupStepRow(
+                    stepNumber = "2",
                     title = "Enable AlwaysOn Keyboard (IME)",
                     subtitle = if (isImeEnabled) "Enabled in system keyboard settings" else "Tap to enable in Android Keyboard settings",
                     isDone = isImeEnabled,
@@ -297,7 +717,7 @@ private fun SetupAndModesSection(
                 )
 
                 SetupStepRow(
-                    stepNumber = "2",
+                    stepNumber = "3",
                     title = "Select AlwaysOn Keyboard as Active",
                     subtitle = if (isImeSelected) "Active default input method" else "Switch to AlwaysOn Minimal Keyboard",
                     isDone = isImeSelected,
@@ -310,12 +730,12 @@ private fun SetupAndModesSection(
                 )
 
                 SetupStepRow(
-                    stepNumber = "3",
+                    stepNumber = "4",
                     title = "Enable Always-On Dock & Trackpad Service",
                     subtitle = if (isAccessibilityEnabled || kbState.isAccessibilityServiceRunning) {
-                        "Persistent Dock, Capacitive Scroll & Fullscreen Detector active"
+                        "Persistent Dock, Capacitive Scroll, Split-Screen Fit & Fullscreen Detector active"
                     } else {
-                        "Keeps keyboard open at all times & auto-hides in fullscreen video"
+                        "Powers Capacitive Trackpad scroll, '⧉ Fit App' split-screen, and Fullscreen Auto-Hide"
                     },
                     isDone = isAccessibilityEnabled || kbState.isAccessibilityServiceRunning,
                     buttonLabel = if (isAccessibilityEnabled) "Configured" else "Enable",
@@ -343,11 +763,6 @@ private fun SetupAndModesSection(
                     text = "Idle Behavior When No Text Field is Focused",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "Choose how the keyboard behaves when no text box is active (you can also cycle modes anytime from the top-left pill on the keyboard):",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
                 IdleBehaviorMode.entries.forEach { mode ->
@@ -391,7 +806,7 @@ private fun SetupAndModesSection(
             }
         }
 
-        // 3. Smart Full-Screen Content Auto-Hide Settings
+        // 3. Display Sizing & Smart Full-Screen Auto-Hide Settings
         Card(
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surfaceContainerLow
@@ -403,10 +818,19 @@ private fun SetupAndModesSection(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    text = "Smart Full-Screen Auto-Hide & Tactile Feel",
+                    text = "Display Sizing & Smart Full-Screen Auto-Hide",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold
                 )
+
+                SettingToggleRow(
+                    title = "Launch Apps in Upper Split-Screen Pane (Uncut App Display)",
+                    subtitle = "Uses FLAG_ACTIVITY_LAUNCH_ADJACENT and the '⧉ Fit App' button on the keyboard top bar so third-party apps size themselves into the screen space above the keyboard.",
+                    checked = kbState.launchInAdjacentSplitScreen,
+                    onCheckedChange = { KeyboardStateRepository.setLaunchInAdjacentSplitScreen(context, it) }
+                )
+
+                HorizontalDivider()
 
                 SettingToggleRow(
                     title = "Auto-Hide in Full-Screen Content (Videos & Games)",
@@ -450,8 +874,8 @@ private fun ShortcutsCustomizationSection(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Text(
             text = "Mode 1: Quick-Launch Shortcuts (A–Z)",
@@ -459,7 +883,7 @@ private fun ShortcutsCustomizationSection(
             fontWeight = FontWeight.Bold
         )
         Text(
-            text = "When on the Home screen (or in Mode 1) with no text input focused, pressing a shortcut key launches its assigned app immediately. Tap any letter below to customize or test:",
+            text = "Tap any letter below to assign which app it launches when pressed on the BB Home Launcher:",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -494,7 +918,7 @@ private fun ShortcutsCustomizationSection(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(
                                 modifier = Modifier
-                                    .size(28.dp)
+                                    .size(26.dp)
                                     .clip(RoundedCornerShape(6.dp))
                                     .background(MaterialTheme.colorScheme.primary),
                                 contentAlignment = Alignment.Center
@@ -503,7 +927,7 @@ private fun ShortcutsCustomizationSection(
                                     text = keyChar.toString(),
                                     color = MaterialTheme.colorScheme.onPrimary,
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp
+                                    fontSize = 12.sp
                                 )
                             }
                             Spacer(modifier = Modifier.width(8.dp))
@@ -514,23 +938,6 @@ private fun ShortcutsCustomizationSection(
                                     fontWeight = if (shortcut != null) FontWeight.SemiBold else FontWeight.Normal,
                                     maxLines = 1
                                 )
-                                if (shortcut != null) {
-                                    Text(
-                                        text = "Tap to change",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
-
-                        if (shortcut != null) {
-                            TextButton(
-                                onClick = {
-                                    KeyboardStateRepository.launchAppShortcut(context, shortcut)
-                                }
-                            ) {
-                                Text("Launch", fontSize = 11.sp)
                             }
                         }
                     }
@@ -546,17 +953,9 @@ private fun ShortcutsCustomizationSection(
             title = { Text("Assign App to '$targetKey' Key") },
             text = {
                 LazyColumn(
-                    modifier = Modifier.height(300.dp),
+                    modifier = Modifier.height(280.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    if (installedApps.isEmpty()) {
-                        item {
-                            Text(
-                                text = "Select a built-in system shortcut:",
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                        }
-                    }
                     items(installedApps) { app ->
                         Surface(
                             modifier = Modifier
@@ -603,22 +1002,18 @@ private fun InteractiveSandboxSection(
     val view = LocalView.current
     val coroutineScope = rememberCoroutineScope()
 
-    var sandboxContext by remember { mutableStateOf(SandboxContext.QUICK_LAUNCH) }
+    var sandboxContext by remember { mutableStateOf(SandboxContext.TRACKPAD_FEED) }
     var sandboxTypedText by remember { mutableStateOf("Try typing on the AlwaysOn Keyboard below! ") }
     val feedListState = rememberLazyListState()
 
-    // Register in-app sandbox callbacks so the user can test typing & capacitive trackpad scrolling
-    // directly inside the sandbox even before enabling the system-wide Accessibility Service!
     DisposableEffect(sandboxContext) {
         when (sandboxContext) {
             SandboxContext.QUICK_LAUNCH -> {
                 KeyboardStateRepository.setInputFocused(false)
-                KeyboardStateRepository.setForegroundWindowContext(context.packageName, isHomeLauncher = true)
                 setActivityImmersiveFullscreen(context, view, fullscreen = false)
             }
             SandboxContext.TRACKPAD_FEED -> {
                 KeyboardStateRepository.setInputFocused(false)
-                KeyboardStateRepository.setForegroundWindowContext(context.packageName, isHomeLauncher = false)
                 setActivityImmersiveFullscreen(context, view, fullscreen = false)
             }
             SandboxContext.TEXT_INPUT -> {
@@ -668,10 +1063,9 @@ private fun InteractiveSandboxSection(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+            .padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // Context Switcher Pills
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -690,13 +1084,13 @@ private fun InteractiveSandboxSection(
                         color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 8.dp)
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 7.dp),
+                        textAlign = TextAlign.Center
                     )
                 }
             }
         }
 
-        // Active Sandbox Viewport
         Card(
             modifier = Modifier
                 .weight(1f)
@@ -711,52 +1105,18 @@ private fun InteractiveSandboxSection(
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
-                            text = "Simulated Home Screen (No Text Input Focused)",
+                            text = "Mode 1: Quick-Launch & Universal Search",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "• Press C (Chrome), M (Messages), S (Settings), G (Gmail), or Y (YouTube) on the Always-On Keyboard below to launch apps immediately.\n• Or press any unassigned letter to open the inline Universal Search bar!",
+                            text = "Press C, M, S, G, P, or Y on the keyboard below to launch apps, or type any query to expand Universal Search.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            listOf('C', 'M', 'S', 'G', 'P').forEach { k ->
-                                val sc = kbState.shortcuts[k]
-                                Surface(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clickable {
-                                            if (sc != null) KeyboardStateRepository.launchAppShortcut(context, sc)
-                                        },
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = MaterialTheme.colorScheme.surfaceContainerHigh
-                                ) {
-                                    Column(
-                                        modifier = Modifier.padding(8.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally
-                                    ) {
-                                        Text(
-                                            text = k.toString(),
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.primary
-                                        )
-                                        Text(
-                                            text = sc?.label ?: k.toString(),
-                                            fontSize = 11.sp,
-                                            maxLines = 1
-                                        )
-                                    }
-                                }
-                            }
-                        }
                     }
                 }
 
@@ -769,17 +1129,17 @@ private fun InteractiveSandboxSection(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(bottom = 8.dp),
+                                .padding(bottom = 6.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "Mode 2: Capacitive Trackpad Feed (Swipe on Keys!)",
+                                text = "Mode 2: Capacitive Trackpad Feed (Swipe Keys!)",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "Last Delta: ${kbState.lastScrollDeltaPx}px",
+                                text = "${kbState.lastScrollDeltaPx}px",
                                 fontFamily = FontFamily.Monospace,
                                 fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.primary
@@ -797,15 +1157,15 @@ private fun InteractiveSandboxSection(
                                     color = MaterialTheme.colorScheme.surface,
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Column(modifier = Modifier.padding(12.dp)) {
+                                    Column(modifier = Modifier.padding(10.dp)) {
                                         Text(
-                                            text = "Feed Post #${index + 1} • Capacitive Touch Scroll",
+                                            text = "Feed Item #${index + 1} • Uncut Display Above Keyboard",
                                             fontWeight = FontWeight.SemiBold,
-                                            fontSize = 13.sp
+                                            fontSize = 12.sp
                                         )
                                         Text(
-                                            text = "Glide your thumb up or down anywhere across the QWERTY keys below to smoothly scroll this list without touching the upper screen. Single key taps are ignored in Passive/Trackpad mode because no text box is focused.",
-                                            fontSize = 12.sp,
+                                            text = "Notice how this entire list is contained in the upper display zone above the keyboard—nothing at the bottom is cut off! Glide your thumb across the keys below to scroll.",
+                                            fontSize = 11.sp,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
@@ -819,24 +1179,13 @@ private fun InteractiveSandboxSection(
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text(
-                            text = "Active Text Field (Standard QWERTY Typing)",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "Whenever a text box is focused, all modes automatically type directly into the active input:",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-
                         OutlinedTextField(
                             value = sandboxTypedText,
                             onValueChange = { sandboxTypedText = it },
-                            label = { Text("Active Message Input") },
+                            label = { Text("Active Message Input (Fits Above Keyboard)") },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .weight(1f)
@@ -861,38 +1210,27 @@ private fun InteractiveSandboxSection(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Surface(
-                                color = Color(0xFF1E293B),
-                                shape = RoundedCornerShape(20.dp)
-                            ) {
-                                Text(
-                                    text = "▶ FULLSCREEN MEDIA ACTIVE",
-                                    color = Color(0xFF38BDF8),
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
-                                )
-                            }
+                            Text(
+                                text = "▶ FULLSCREEN VIDEO ACTIVE",
+                                color = Color(0xFF38BDF8),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                             Text(
                                 text = "Always-On Keyboard Automatically Hidden!",
                                 color = Color.White,
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold
                             )
-                            Text(
-                                text = "System bars are hidden and full-screen content was detected. Notice how the Always-On Keyboard automatically slid out of the way so you get 100% of your display.",
-                                color = Color(0xFF94A3B8),
-                                style = MaterialTheme.typography.bodySmall
-                            )
                             Button(
                                 onClick = {
                                     setActivityImmersiveFullscreen(context, view, fullscreen = false)
                                     onExitFullscreenToSetup()
-                                    sandboxContext = SandboxContext.QUICK_LAUNCH
+                                    sandboxContext = SandboxContext.TRACKPAD_FEED
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6))
                             ) {
-                                Text("Exit Fullscreen (Restore Always-On Keyboard)")
+                                Text("Exit Fullscreen (Restore Keyboard)")
                             }
                         }
                     }
@@ -987,6 +1325,18 @@ private fun SettingToggleRow(
         }
         Spacer(modifier = Modifier.width(12.dp))
         Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
+private fun checkIsDefaultLauncher(context: Context): Boolean {
+    return try {
+        val intent = Intent(Intent.ACTION_MAIN).apply {
+            addCategory(Intent.CATEGORY_HOME)
+        }
+        val resolveInfo = context.packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)
+        resolveInfo?.activityInfo?.packageName == context.packageName
+    } catch (_: Exception) {
+        false
     }
 }
 

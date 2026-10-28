@@ -3,7 +3,6 @@ package com.bb.alwaysonkeyboard.data
 import android.app.SearchManager
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -73,6 +72,7 @@ data class KeyboardUiState(
     val idleMode: IdleBehaviorMode = IdleBehaviorMode.SMART_COMBINED,
     val isImeWindowVisible: Boolean = false,
     val isAccessibilityServiceRunning: Boolean = false,
+    val isLauncherInForeground: Boolean = true,
     val isInputFocused: Boolean = false,
     val isHomeScreenActive: Boolean = true,
     val isFullscreenDetected: Boolean = false,
@@ -81,11 +81,12 @@ data class KeyboardUiState(
     val autoHideInFullscreen: Boolean = true,
     val autoHideInLandscape: Boolean = true,
     val hapticFeedbackEnabled: Boolean = true,
+    val launchInAdjacentSplitScreen: Boolean = true,
     val trackpadSensitivity: Float = 1.5f,
     val universalSearchQuery: String = "",
     val isUniversalSearchExpanded: Boolean = false,
     val currentForegroundPackage: String = "",
-    val lastTelemetryEvent: String = "Always-On Keyboard Ready",
+    val lastTelemetryEvent: String = "BB Keyboard Launcher Ready",
     val lastScrollDeltaPx: Int = 0,
     val shortcuts: Map<Char, AppShortcut> = defaultShortcuts()
 ) {
@@ -117,7 +118,7 @@ data class KeyboardUiState(
     val isQuickLaunchActiveForIdleTaps: Boolean
         get() = !isInputFocused && (
             idleMode == IdleBehaviorMode.QUICK_LAUNCH_SEARCH ||
-                (idleMode == IdleBehaviorMode.SMART_COMBINED && isHomeScreenActive)
+                (idleMode == IdleBehaviorMode.SMART_COMBINED && (isHomeScreenActive || isLauncherInForeground))
             )
 }
 
@@ -139,6 +140,7 @@ object KeyboardStateRepository {
     private const val KEY_AUTO_HIDE_FULLSCREEN = "auto_hide_fullscreen"
     private const val KEY_AUTO_HIDE_LANDSCAPE = "auto_hide_landscape"
     private const val KEY_HAPTICS = "haptics_enabled"
+    private const val KEY_LAUNCH_ADJACENT = "launch_adjacent_split"
     private const val KEY_SENSITIVITY = "trackpad_sensitivity"
     private const val KEY_SHORTCUT_PREFIX = "shortcut_pkg_"
     private const val KEY_SHORTCUT_LABEL_PREFIX = "shortcut_lbl_"
@@ -154,6 +156,7 @@ object KeyboardStateRepository {
     var onDeleteTextCallback: (() -> Boolean)? = null
     var onEnterActionCallback: (() -> Boolean)? = null
     var onTrackpadScrollCallback: ((dx: Float, dy: Float) -> Unit)? = null
+    var onToggleSplitScreenCallback: (() -> Boolean)? = null
 
     fun initialize(context: Context) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -161,6 +164,7 @@ object KeyboardStateRepository {
         val autoFullscreen = prefs.getBoolean(KEY_AUTO_HIDE_FULLSCREEN, true)
         val autoLandscape = prefs.getBoolean(KEY_AUTO_HIDE_LANDSCAPE, true)
         val haptics = prefs.getBoolean(KEY_HAPTICS, true)
+        val launchAdjacent = prefs.getBoolean(KEY_LAUNCH_ADJACENT, true)
         val sensitivity = prefs.getFloat(KEY_SENSITIVITY, 1.5f)
 
         val mergedShortcuts = defaultShortcuts().toMutableMap()
@@ -178,6 +182,7 @@ object KeyboardStateRepository {
                 autoHideInFullscreen = autoFullscreen,
                 autoHideInLandscape = autoLandscape,
                 hapticFeedbackEnabled = haptics,
+                launchInAdjacentSplitScreen = launchAdjacent,
                 trackpadSensitivity = sensitivity,
                 shortcuts = mergedShortcuts
             )
@@ -195,6 +200,7 @@ object KeyboardStateRepository {
             val apps = resolveInfos
                 .mapNotNull { info ->
                     val pkg = info.activityInfo?.packageName ?: return@mapNotNull null
+                    if (pkg == context.packageName) return@mapNotNull null
                     val label = info.loadLabel(pm).toString().trim()
                     if (label.isNotEmpty()) InstalledAppInfo(label, pkg) else null
                 }
@@ -202,7 +208,6 @@ object KeyboardStateRepository {
                 .sortedBy { it.label.lowercase() }
             _installedApps.value = apps
         } catch (_: Exception) {
-            // Ignore package query errors on restricted profiles
         }
     }
 
@@ -249,12 +254,12 @@ object KeyboardStateRepository {
         _state.update { it.copy(hapticFeedbackEnabled = enabled) }
     }
 
-    fun setTrackpadSensitivity(context: Context, sensitivity: Float) {
+    fun setLaunchInAdjacentSplitScreen(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
-            .putFloat(KEY_SENSITIVITY, sensitivity)
+            .putBoolean(KEY_LAUNCH_ADJACENT, enabled)
             .apply()
-        _state.update { it.copy(trackpadSensitivity = sensitivity) }
+        _state.update { it.copy(launchInAdjacentSplitScreen = enabled) }
     }
 
     fun assignShortcut(context: Context, key: Char, label: String, packageName: String) {
@@ -280,6 +285,15 @@ object KeyboardStateRepository {
 
     fun setAccessibilityServiceRunning(running: Boolean) {
         _state.update { it.copy(isAccessibilityServiceRunning = running) }
+    }
+
+    fun setLauncherInForeground(inForeground: Boolean) {
+        _state.update {
+            it.copy(
+                isLauncherInForeground = inForeground,
+                isHomeScreenActive = if (inForeground) true else it.isHomeScreenActive
+            )
+        }
     }
 
     fun setInputFocused(focused: Boolean, packageName: String? = null) {
@@ -364,13 +378,15 @@ object KeyboardStateRepository {
         _state.update { it.copy(lastTelemetryEvent = message) }
     }
 
-    /**
-     * Handles a key press from the Clean Modern Minimal QWERTY Keyboard across all contexts:
-     * 1. When a text input field is focused -> Commits text via IME / Accessibility node.
-     * 2. When no text input is focused:
-     *    - Mode 1 (Quick-Launch & Universal Search): Launches shortcut on single-key / long-press or builds search query.
-     *    - Mode 2 / Mode 4 (Trackpad / Passive): Ignores stray key taps so the user never types into thin air.
-     */
+    fun requestSplitScreenDock(context: Context) {
+        val triggered = onToggleSplitScreenCallback?.invoke() ?: false
+        if (triggered) {
+            recordTelemetry("Toggled Split-Screen Dock Mode (App fits above keyboard)")
+        } else {
+            recordTelemetry("Enable AlwaysOn Dock Service in Accessibility to use 1-tap Split-Screen Dock")
+        }
+    }
+
     fun handleKeyPress(context: Context, keyLabel: String, isLongPress: Boolean = false) {
         val current = _state.value
 
@@ -398,11 +414,7 @@ object KeyboardStateRepository {
         }
 
         // 2. No text field is focused! Check the active IdleBehaviorMode:
-        val quickLaunchEnabled = current.idleMode == IdleBehaviorMode.QUICK_LAUNCH_SEARCH ||
-            (current.idleMode == IdleBehaviorMode.SMART_COMBINED && current.isHomeScreenActive)
-
-        if (!quickLaunchEnabled) {
-            // Mode 4 (Passive Dock) or Mode 2 (Trackpad-only taps): Ignore key taps when no input is focused
+        if (!current.isQuickLaunchActiveForIdleTaps) {
             recordTelemetry("Passive Dock: Ignored '$keyLabel' (No text field focused)")
             return
         }
@@ -446,13 +458,27 @@ object KeyboardStateRepository {
         }
     }
 
+    fun launchPackage(context: Context, packageName: String, label: String = packageName): Boolean {
+        val pm = context.packageManager
+        val launchIntent = pm.getLaunchIntentForPackage(packageName) ?: return false
+        applyDockLaunchFlags(launchIntent)
+        return try {
+            context.startActivity(launchIntent)
+            clearUniversalSearch()
+            recordTelemetry("Launched $label")
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     fun launchAppShortcut(context: Context, shortcut: AppShortcut): Boolean {
         val pm = context.packageManager
         // 1. Try direct package launch
         if (!shortcut.packageName.isNullOrBlank()) {
             val launchIntent = pm.getLaunchIntentForPackage(shortcut.packageName)
             if (launchIntent != null) {
-                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                applyDockLaunchFlags(launchIntent)
                 return try {
                     context.startActivity(launchIntent)
                     true
@@ -469,7 +495,7 @@ object KeyboardStateRepository {
         if (matchedApp != null) {
             val launchIntent = pm.getLaunchIntentForPackage(matchedApp.packageName)
             if (launchIntent != null) {
-                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                applyDockLaunchFlags(launchIntent)
                 return try {
                     context.startActivity(launchIntent)
                     true
@@ -483,14 +509,11 @@ object KeyboardStateRepository {
         val fallback = shortcut.fallbackCategoryOrAction ?: return false
         return try {
             val intent = if (fallback.startsWith("android.intent.category.")) {
-                Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, fallback).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
+                Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, fallback)
             } else {
-                Intent(fallback).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
+                Intent(fallback)
             }
+            applyDockLaunchFlags(intent)
             context.startActivity(intent)
             true
         } catch (_: Exception) {
@@ -500,30 +523,21 @@ object KeyboardStateRepository {
 
     fun executeUniversalSearch(context: Context, query: String) {
         clearUniversalSearch()
-        // First check if an installed app matches the query
         val matchingApp = _installedApps.value.firstOrNull {
             it.label.startsWith(query, ignoreCase = true) ||
                 it.label.contains(query, ignoreCase = true)
         }
         if (matchingApp != null) {
-            val intent = context.packageManager.getLaunchIntentForPackage(matchingApp.packageName)
-            if (intent != null) {
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                try {
-                    context.startActivity(intent)
-                    recordTelemetry("Launched app: ${matchingApp.label}")
-                    return
-                } catch (_: Exception) {
-                }
+            if (launchPackage(context, matchingApp.packageName, matchingApp.label)) {
+                return
             }
         }
 
-        // Otherwise launch web search
         try {
             val searchIntent = Intent(Intent.ACTION_WEB_SEARCH).apply {
                 putExtra(SearchManager.QUERY, query)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
+            applyDockLaunchFlags(searchIntent)
             context.startActivity(searchIntent)
             recordTelemetry("Searched web for \"$query\"")
         } catch (_: Exception) {
@@ -531,14 +545,20 @@ object KeyboardStateRepository {
                 val browserIntent = Intent(
                     Intent.ACTION_VIEW,
                     Uri.parse("https://www.google.com/search?q=${Uri.encode(query)}")
-                ).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
+                )
+                applyDockLaunchFlags(browserIntent)
                 context.startActivity(browserIntent)
                 recordTelemetry("Opened browser search for \"$query\"")
             } catch (_: Exception) {
                 recordTelemetry("Search executed: \"$query\"")
             }
+        }
+    }
+
+    private fun applyDockLaunchFlags(intent: Intent) {
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (_state.value.launchInAdjacentSplitScreen) {
+            intent.addFlags(Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
         }
     }
 }

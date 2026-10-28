@@ -143,6 +143,12 @@ fun ModernQwertyKeyboard(
                 }
                 KeyboardStateRepository.cycleIdleMode(context)
             },
+            onSplitDock = {
+                if (state.hapticFeedbackEnabled) {
+                    view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                }
+                KeyboardStateRepository.requestSplitScreenDock(context)
+            },
             onMinimize = {
                 if (state.hapticFeedbackEnabled) {
                     view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
@@ -493,6 +499,7 @@ private fun KeyboardUtilityBar(
     state: KeyboardUiState,
     isSwipingTrackpad: Boolean,
     onCycleMode: () -> Unit,
+    onSplitDock: () -> Unit,
     onMinimize: () -> Unit
 ) {
     Row(
@@ -541,7 +548,7 @@ private fun KeyboardUtilityBar(
             isSwipingTrackpad -> "⇅ Trackpad Scroll (${state.lastScrollDeltaPx}px)"
             state.isInputFocused -> "● Typing Active"
             state.isQuickLaunchActiveForIdleTaps -> "Tap A–Z Shortcut or Search"
-            state.isTrackpadSwipeEnabled -> "⇅ Swipe Keys to Scroll • Passive Taps"
+            state.isTrackpadSwipeEnabled -> "⇅ Swipe Keys to Scroll"
             else -> "○ Passive Hardware Dock"
         }
 
@@ -557,17 +564,35 @@ private fun KeyboardUtilityBar(
                 .padding(horizontal = 8.dp)
         )
 
-        // Manual Collapse / Hide Button
-        Text(
-            text = "Hide ▾",
-            color = AccentBlue,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier
-                .clip(RoundedCornerShape(6.dp))
-                .clickable(onClick = onMinimize)
-                .padding(horizontal = 6.dp, vertical = 2.dp)
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            // 1-Tap Split-Screen Dock Button (snaps third-party app into upper display above keyboard)
+            Text(
+                text = "⧉ Fit App",
+                color = KeyTextPrimary,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(KeyActionSurface)
+                    .clickable(onClick = onSplitDock)
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            )
+
+            // Manual Collapse / Hide Button
+            Text(
+                text = "Hide ▾",
+                color = AccentBlue,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .clickable(onClick = onMinimize)
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            )
+        }
     }
 }
 

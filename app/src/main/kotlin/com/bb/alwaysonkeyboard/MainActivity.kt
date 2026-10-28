@@ -31,6 +31,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        KeyboardStateRepository.setLauncherInForeground(true)
+        KeyboardStateRepository.setInputFocused(false)
         KeyboardStateRepository.refreshInstalledApps(applicationContext)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        KeyboardStateRepository.setLauncherInForeground(false)
     }
 }
