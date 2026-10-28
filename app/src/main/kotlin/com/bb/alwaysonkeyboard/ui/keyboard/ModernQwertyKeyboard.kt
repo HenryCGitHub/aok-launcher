@@ -776,7 +776,7 @@ private fun CollapsedKeyboardRestorePill(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "AlwaysOn Keyboard (${state.idleMode.shortTitle})",
+                text = "AOK Launcher (${state.idleMode.shortTitle})",
                 color = KeyTextSecondary,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Medium

@@ -1,7 +1,7 @@
 <resources>
-    <string name="app_name">AlwaysOn Keyboard</string>
-    <string name="ime_name">AlwaysOn Minimal Keyboard</string>
-    <string name="subtype_en_us">English (US) - Modern Minimal</string>
-    <string name="accessibility_service_label">AlwaysOn Keyboard Dock &amp; Trackpad</string>
-    <string name="accessibility_service_description">Keeps the AlwaysOn Keyboard docked like a physical keyboard, enables capacitive touch scrolling across keys, and automatically hides the keyboard when watching full-screen video or playing games.</string>
+    <string name="app_name">AOK Launcher</string>
+    <string name="ime_name">AOK Keyboard</string>
+    <string name="subtype_en_us">English (US) - AOK Minimal</string>
+    <string name="accessibility_service_label">AOK Dock &amp; Trackpad</string>
+    <string name="accessibility_service_description">Keeps the AOK Launcher keyboard docked like a physical keyboard, enables capacitive touch scrolling across keys, fits apps above the keyboard, and automatically hides when watching full-screen video or playing games.</string>
 </resources>

@@ -105,7 +105,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private enum class DashboardTab(val title: String) {
-    HOME_LAUNCHER("BB Home"),
+    HOME_LAUNCHER("AOK Home"),
     SETUP_AND_MODES("Setup & Modes"),
     SHORTCUTS("A–Z Keys"),
     LIVE_SANDBOX("Test")
@@ -192,7 +192,7 @@ fun AlwaysOnKeyboardDashboard(modifier: Modifier = Modifier) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "AlwaysOn Minimal Keyboard",
+                            text = "AOK Launcher",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold
                         )
@@ -409,7 +409,7 @@ private fun CustomBbHomeLauncherSection(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "BB Speed Dial (Press Key on Keyboard or Tap)",
+                            text = "AOK Speed Dial (Press Key on Keyboard or Tap)",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -685,7 +685,7 @@ private fun SetupAndModesSection(
 
                 SetupStepRow(
                     stepNumber = "1",
-                    title = "Set BB Home as Default Launcher",
+                    title = "Set AOK Launcher as Default Home",
                     subtitle = if (isDefaultLauncher) {
                         "Active Default Home Launcher (Home screen fits 100% above keyboard)"
                     } else {
@@ -705,7 +705,7 @@ private fun SetupAndModesSection(
 
                 SetupStepRow(
                     stepNumber = "2",
-                    title = "Enable AlwaysOn Keyboard (IME)",
+                    title = "Enable AOK Keyboard (IME)",
                     subtitle = if (isImeEnabled) "Enabled in system keyboard settings" else "Tap to enable in Android Keyboard settings",
                     isDone = isImeEnabled,
                     buttonLabel = if (isImeEnabled) "Settings" else "Enable",
@@ -718,8 +718,8 @@ private fun SetupAndModesSection(
 
                 SetupStepRow(
                     stepNumber = "3",
-                    title = "Select AlwaysOn Keyboard as Active",
-                    subtitle = if (isImeSelected) "Active default input method" else "Switch to AlwaysOn Minimal Keyboard",
+                    title = "Select AOK Keyboard as Active",
+                    subtitle = if (isImeSelected) "Active default input method" else "Switch to AOK Keyboard",
                     isDone = isImeSelected,
                     buttonLabel = if (isImeSelected) "Switch" else "Select",
                     onClick = {
@@ -731,7 +731,7 @@ private fun SetupAndModesSection(
 
                 SetupStepRow(
                     stepNumber = "4",
-                    title = "Enable Always-On Dock & Trackpad Service",
+                    title = "Enable AOK Dock & Trackpad Service",
                     subtitle = if (isAccessibilityEnabled || kbState.isAccessibilityServiceRunning) {
                         "Persistent Dock, Capacitive Scroll, Split-Screen Fit & Fullscreen Detector active"
                     } else {

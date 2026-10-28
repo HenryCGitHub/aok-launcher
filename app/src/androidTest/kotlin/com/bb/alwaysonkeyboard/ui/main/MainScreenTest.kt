@@ -20,7 +20,7 @@ class MainScreenTest {
 
     @Test
     fun dashboardTitle_exists() {
-        composeTestRule.onNodeWithText("AlwaysOn Minimal Keyboard").assertExists()
+        composeTestRule.onNodeWithText("AOK Launcher").assertExists()
         composeTestRule.onNodeWithText("Setup & Modes").assertExists()
     }
 }

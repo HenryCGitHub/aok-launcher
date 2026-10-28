@@ -86,7 +86,7 @@ data class KeyboardUiState(
     val universalSearchQuery: String = "",
     val isUniversalSearchExpanded: Boolean = false,
     val currentForegroundPackage: String = "",
-    val lastTelemetryEvent: String = "BB Keyboard Launcher Ready",
+    val lastTelemetryEvent: String = "AOK Launcher Ready",
     val lastScrollDeltaPx: Int = 0,
     val shortcuts: Map<Char, AppShortcut> = defaultShortcuts()
 ) {
