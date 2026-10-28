@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -150,7 +151,9 @@ fun AlwaysOnKeyboardDashboard(modifier: Modifier = Modifier) {
     }
 
     Scaffold(
-        modifier = modifier.fillMaxSize(),
+        modifier = modifier
+            .fillMaxSize()
+            .imePadding(),
         topBar = {
             if (!kbState.isFullscreenDetected) {
                 TopAppBar(
@@ -228,10 +231,10 @@ fun AlwaysOnKeyboardDashboard(modifier: Modifier = Modifier) {
             }
 
             // Built-in Live Always-On Keyboard Dock Preview & Controller
-            // Shown at the bottom of the app whenever the system IME/Overlay isn't already covering it,
-            // and automatically hides when Fullscreen Video mode is active!
-            val showInAppDock = !kbState.isImeWindowVisible &&
-                !kbState.isAccessibilityServiceRunning &&
+            // Only shown inside the app if the native system IME is not yet enabled/selected,
+            // so there is never a duplicate keyboard covering the screen.
+            val showInAppDock = !isImeSelected &&
+                !kbState.isImeWindowVisible &&
                 !kbState.isAutoHiddenByFullscreen
 
             AnimatedVisibility(visible = showInAppDock) {

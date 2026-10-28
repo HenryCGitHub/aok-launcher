@@ -23,8 +23,6 @@ import com.bb.alwaysonkeyboard.data.KeyboardStateRepository
 import com.bb.alwaysonkeyboard.ui.keyboard.ModernQwertyKeyboard
 import java.lang.ref.WeakReference
 import kotlin.math.abs
-import kotlin.math.max
-import kotlin.math.min
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -33,16 +31,9 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 /**
- * Persistent Keyboard Dock, Capacitive Trackpad Scroll Engine, and Smart Fullscreen Detector.
- *
- * Works in tandem with [AlwaysOnInputMethodService]:
- * - Keeps the Clean Modern Minimal QWERTY Keyboard docked at the bottom of the screen even when
- *   no text input is focused (Home screen, social feeds, browsers).
- * - Automatically hides its overlay window whenever [AlwaysOnInputMethodService]'s native IME window
- *   is visible so there is never a duplicate keyboard.
- * - Detects full-screen video & immersive content via system bar insets and [AccessibilityWindowInfo]
- *   window geometry, automatically hiding the keyboard when watching full-screen content.
- * - Executes smooth Capacitive Trackpad scrolling across any app when swiping across the keys.
+ * Coordinates with [AlwaysOnInputMethodService] to keep the native IME window open
+ * (which resizes apps above the keyboard via `contentTopInsets` instead of covering them),
+ * executes Capacitive Trackpad scrolling across any app, and detects full-screen video/games.
  */
 class AlwaysOnAccessibilityService : AccessibilityService() {
 
@@ -69,7 +60,7 @@ class AlwaysOnAccessibilityService : AccessibilityService() {
             performCapacitiveScroll(dx, dy)
         }
 
-        // Fallback text callbacks when typing into a focused AccessibilityNodeInfo before IME opens
+        // Fallback text callbacks when typing into a focused AccessibilityNodeInfo
         if (KeyboardStateRepository.onCommitTextCallback == null) {
             KeyboardStateRepository.onCommitTextCallback = { text ->
                 injectTextIntoFocusedNode(text)
@@ -81,20 +72,32 @@ class AlwaysOnAccessibilityService : AccessibilityService() {
             }
         }
 
-        setupPersistentOverlayDock()
+        setupRestorePillOverlay()
+        AlwaysOnInputMethodService.requestShowNativeKeyboard()
 
-        // Observe state changes to synchronize overlay visibility with IME window & Fullscreen state
+        // Only show the tiny Accessibility Overlay pill when the user manually minimized the keyboard
+        // ("Restore Keyboard ▴") OR on the Home screen if the native IME window isn't shown.
+        // Never draw an overlay over regular apps so apps are resized by the native IME window instead of covered!
         serviceScope.launch {
             KeyboardStateRepository.state.collectLatest { state ->
                 val view = overlayView ?: return@collectLatest
-                // Hide overlay when native IME window is already showing the keyboard OR when fullscreen content is active
-                val shouldShowOverlay = !state.isImeWindowVisible && !state.isAutoHiddenByFullscreen
-                view.visibility = if (shouldShowOverlay) View.VISIBLE else View.GONE
+                if (state.isAutoHiddenByFullscreen) {
+                    view.visibility = View.GONE
+                } else if (state.isManuallyMinimized) {
+                    // Show the slim 28dp "Restore Keyboard ▴" bar at the bottom edge
+                    view.visibility = View.VISIBLE
+                } else if (!state.isImeWindowVisible) {
+                    // Ask the native IME service to open its resizing window
+                    AlwaysOnInputMethodService.requestShowNativeKeyboard()
+                    view.visibility = View.GONE
+                } else {
+                    view.visibility = View.GONE
+                }
             }
         }
     }
 
-    private fun setupPersistentOverlayDock() {
+    private fun setupRestorePillOverlay() {
         if (overlayView != null) return
         val wm = getSystemService(WINDOW_SERVICE) as WindowManager
         windowManager = wm
@@ -119,13 +122,12 @@ class AlwaysOnAccessibilityService : AccessibilityService() {
 
         val view = ComposeView(this).apply {
             owner.attachToView(this)
+            visibility = View.GONE
             setContent {
                 ModernQwertyKeyboard()
             }
         }
 
-        // Listen for WindowInsets changes on the overlay to detect when the foreground app
-        // hides the status/navigation bars (e.g., YouTube/Netflix fullscreen video or immersive games)
         ViewCompat.setOnApplyWindowInsetsListener(view) { _, insets ->
             val statusBarsVisible = insets.isVisible(WindowInsetsCompat.Type.statusBars())
             if (!statusBarsVisible) {
@@ -159,6 +161,9 @@ class AlwaysOnAccessibilityService : AccessibilityService() {
             AccessibilityEvent.TYPE_VIEW_CLICKED -> {
                 evaluateFocusedInputNode()
                 evaluateWindowsForFullscreen()
+                if (KeyboardStateRepository.state.value.shouldShowKeyboardDock) {
+                    AlwaysOnInputMethodService.requestShowNativeKeyboard()
+                }
             }
             else -> {}
         }
@@ -169,7 +174,6 @@ class AlwaysOnAccessibilityService : AccessibilityService() {
             val root = rootInActiveWindow ?: return
             val focusedInput = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
             val isEditableFocused = focusedInput != null && focusedInput.isEditable && focusedInput.isFocused
-            // Only override input focus if the IME window isn't already managing it
             if (!KeyboardStateRepository.state.value.isImeWindowVisible) {
                 KeyboardStateRepository.setInputFocused(isEditableFocused, focusedInput?.packageName?.toString())
             }
@@ -198,7 +202,6 @@ class AlwaysOnAccessibilityService : AccessibilityService() {
                 win.getBoundsInScreen(rect)
                 when (win.type) {
                     AccessibilityWindowInfo.TYPE_SYSTEM -> {
-                        // A visible status bar sits at top == 0 and spans the width of the screen
                         if (rect.top == 0 && rect.width() >= screenWidth / 2 && rect.height() in 1..200) {
                             hasTopSystemStatusBar = true
                         }
@@ -215,8 +218,6 @@ class AlwaysOnAccessibilityService : AccessibilityService() {
                 }
             }
 
-            // If an app window spans 100% of the screen and the system status bar is hidden,
-            // the app is in full-screen / immersive media mode!
             val isFullscreen = hasFullscreenAppWindow && !hasTopSystemStatusBar
             KeyboardStateRepository.setFullscreenDetected(
                 fullscreen = isFullscreen,
@@ -249,7 +250,6 @@ class AlwaysOnAccessibilityService : AccessibilityService() {
 
         val metrics = resources.displayMetrics
         val centerX = metrics.widthPixels * 0.5f
-        // Perform the swipe gesture in the upper 45% of the screen (well above the keyboard dock)
         val startY = metrics.heightPixels * 0.42f
         val endX = (centerX + dispatchDx).coerceIn(metrics.widthPixels * 0.1f, metrics.widthPixels * 0.9f)
         val endY = (startY + dispatchDy).coerceIn(metrics.heightPixels * 0.12f, metrics.heightPixels * 0.68f)
@@ -266,7 +266,6 @@ class AlwaysOnAccessibilityService : AccessibilityService() {
 
         val dispatched = dispatchGesture(gesture, null, null)
         if (!dispatched) {
-            // Fallback to AccessibilityNodeInfo scroll action if gesture dispatch is busy
             scrollActiveNodeFallback(dispatchDy < 0)
         }
     }
@@ -317,7 +316,6 @@ class AlwaysOnAccessibilityService : AccessibilityService() {
     }
 
     override fun onInterrupt() {
-        // Required override for AccessibilityService
     }
 
     override fun onDestroy() {
